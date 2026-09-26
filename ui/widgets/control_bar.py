@@ -1,0 +1,113 @@
+"""
+Widget de la barra de controles.
+"""
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QComboBox
+from PyQt6.QtCore import pyqtSignal
+import serial.tools.list_ports
+
+class ControlBar(QWidget):
+    """
+    Barra de herramientas con controles de conexión y acciones.
+    """
+    connect_requested = pyqtSignal()
+    refresh_requested = pyqtSignal()
+    start_requested = pyqtSignal()
+    stop_requested = pyqtSignal()
+    unit_toggled = pyqtSignal()
+    tare_requested = pyqtSignal()
+    clear_requested = pyqtSignal()
+    export_requested = pyqtSignal()
+
+    def __init__(self, parent=None) -> None:
+        """
+        Inicializa la barra de controles.
+        
+        Args:
+            parent: Widget padre.
+        """
+        super().__init__(parent)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        """Construye los botones y controles."""
+        ctrl = QHBoxLayout(self)
+        ctrl.setContentsMargins(0, 0, 0, 0)
+        
+        self.port_combo = QComboBox()
+        
+        self.btn_refresh = QPushButton("↺")
+        self.btn_refresh.setFixedWidth(36)
+        self.btn_refresh.clicked.connect(self.refresh_requested.emit)
+        self.btn_refresh.clicked.connect(self.refresh_ports)
+        
+        self.btn_connect = QPushButton("⏚ CONECTAR")
+        self.btn_connect.clicked.connect(self.connect_requested.emit)
+        
+        self.btn_start = QPushButton("▶ START")
+        self.btn_start.setStyleSheet("background:#0d2b0d;color:#00ff88;border-color:#00ff8844;")
+        self.btn_start.clicked.connect(self.start_requested.emit)
+        
+        self.btn_stop = QPushButton("■ STOP")
+        self.btn_stop.setStyleSheet("background:#2b0d0d;color:#ff4444;border-color:#ff444444;")
+        self.btn_stop.clicked.connect(self.stop_requested.emit)
+        
+        self.btn_unit = QPushButton("UNIDAD: N")
+        self.btn_unit.setStyleSheet("background:#1a1a3a;color:#00e5ff;border-color:#00e5ff44;")
+        self.btn_unit.clicked.connect(self.unit_toggled.emit)
+        
+        self.btn_tare = QPushButton("⊙ TARAR")
+        self.btn_tare.clicked.connect(self.tare_requested.emit)
+        
+        self.btn_clear = QPushButton("⌫ LIMPIAR")
+        self.btn_clear.clicked.connect(self.clear_requested.emit)
+        
+        self.btn_export = QPushButton("↓ CSV")
+        self.btn_export.clicked.connect(self.export_requested.emit)
+        
+        ctrl.addWidget(self.port_combo)
+        ctrl.addWidget(self.btn_refresh)
+        ctrl.addWidget(self.btn_connect)
+        ctrl.addWidget(self.btn_start)
+        ctrl.addWidget(self.btn_stop)
+        ctrl.addStretch()
+        ctrl.addWidget(self.btn_unit)
+        ctrl.addWidget(self.btn_tare)
+        ctrl.addWidget(self.btn_clear)
+        ctrl.addWidget(self.btn_export)
+
+        self.refresh_ports()
+
+    def refresh_ports(self) -> None:
+        """Actualiza la lista de puertos seriales disponibles."""
+        self.port_combo.clear()
+        ports = serial.tools.list_ports.comports()
+        for p in ports:
+            self.port_combo.addItem(p.device)
+
+    def get_selected_port(self) -> str:
+        """
+        Obtiene el puerto serial seleccionado.
+        
+        Returns:
+            str: El nombre del puerto seleccionado.
+        """
+        return self.port_combo.currentText()
+
+    def set_start_stop_visible(self, visible: bool) -> None:
+        """
+        Muestra u oculta los botones de START/STOP.
+        
+        Args:
+            visible: Verdadero para mostrar, falso para ocultar.
+        """
+        self.btn_start.setVisible(visible)
+        self.btn_stop.setVisible(visible)
+
+    def update_unit_label(self, is_kg: bool) -> None:
+        """
+        Actualiza el texto del botón de unidades.
+        
+        Args:
+            is_kg: Verdadero si está en kg, falso si está en N.
+        """
+        self.btn_unit.setText("UNIDAD: kg" if is_kg else "UNIDAD: N")
