@@ -17,6 +17,7 @@ class ConnectionMode(str, Enum):
 
     CABLE = "cable"
     LORA = "lora"
+    WIFI = "wifi"
 
 
 @dataclass(frozen=True)
@@ -38,5 +39,10 @@ PROTOCOL_CONFIGS: dict[ConnectionMode, ProtocolConfig] = {
         packet_size=9,
         struct_format="<fIb",
         has_rssi=True,
+    ),
+    ConnectionMode.WIFI: ProtocolConfig(
+        packet_size=8,
+        struct_format="<fI",
+        has_rssi=False,
     ),
 }

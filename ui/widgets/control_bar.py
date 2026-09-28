@@ -17,6 +17,7 @@ class ControlBar(QWidget):
     tare_requested = pyqtSignal()
     clear_requested = pyqtSignal()
     export_requested = pyqtSignal()
+    analysis_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         """
@@ -63,6 +64,10 @@ class ControlBar(QWidget):
         
         self.btn_export = QPushButton("↓ CSV")
         self.btn_export.clicked.connect(self.export_requested.emit)
+
+        self.btn_analysis = QPushButton("ANALIZAR")
+        self.btn_analysis.setStyleSheet("background:#102a30;color:#00e5ff;border-color:#00e5ff44;")
+        self.btn_analysis.clicked.connect(self.analysis_requested.emit)
         
         ctrl.addWidget(self.port_combo)
         ctrl.addWidget(self.btn_refresh)
@@ -74,6 +79,7 @@ class ControlBar(QWidget):
         ctrl.addWidget(self.btn_tare)
         ctrl.addWidget(self.btn_clear)
         ctrl.addWidget(self.btn_export)
+        ctrl.addWidget(self.btn_analysis)
 
         self.refresh_ports()
 
@@ -111,3 +117,11 @@ class ControlBar(QWidget):
             is_kg: Verdadero si está en kg, falso si está en N.
         """
         self.btn_unit.setText("UNIDAD: kg" if is_kg else "UNIDAD: N")
+
+    def set_wifi_mode(self, is_wifi: bool) -> None:
+        """
+        Ajusta la visibilidad de los controles de puerto según el modo WiFi.
+        En modo WiFi, se oculta el combo de puertos seriales y el botón de recargar.
+        """
+        self.port_combo.setVisible(not is_wifi)
+        self.btn_refresh.setVisible(not is_wifi)

@@ -19,6 +19,7 @@ from config.settings import AppSettings
 from communication.protocols import ConnectionMode
 from core.telemetry_engine import TelemetryEngine
 from communication.serial_reader import SerialReader
+from communication.udp_reader import UdpReader
 from persistence.auto_saver import AutoSaver
 from persistence.csv_exporter import export_telemetry_csv, export_trim_csv
 from ui.widgets.kpi_card import KpiCard
@@ -28,6 +29,7 @@ from ui.widgets.ignition_panel import IgnitionPanel
 from ui.widgets.graph_panel import GraphPanel
 from ui.widgets.trim_toolbar import TrimToolbar
 from ui.dialogs.export_dialog import ExportConfirmDialog
+from ui.dialogs.analysis_window import CsvAnalysisWindow
 from utils.paths import resource_path
 
 logger = logging.getLogger(__name__)
@@ -50,7 +52,8 @@ class RocketDashboard(QMainWindow):
 
         self.conn_mode: ConnectionMode = ConnectionMode.LORA
         self.auto_saver: Optional[AutoSaver] = None
-        self.serial_thread: Optional[SerialReader] = None
+        self.comm_thread: Optional[SerialReader] = None
+        self.analysis_window: Optional[CsvAnalysisWindow] = None
         self._trim_active: bool = False
 
         self.reconnect_timer = QTimer()
@@ -77,12 +80,24 @@ class RocketDashboard(QMainWindow):
 
         # Fila de KPIs
         kpi_layout = QHBoxLayout()
-        self.kpi_thrust = KpiCard("EMPUJE", "N")
-        self.kpi_max = KpiCard("MAXIMO", "N")
-        self.kpi_impulse = KpiCard("IMPULSO", "Ns")
-        self.kpi_class = KpiCard("CLASE", "")
-        self.kpi_rssi = KpiCard("SENAL", "dBm")
-        self.kpi_lost_pkts = KpiCard("PERDIDOS", "")
+        self.kpi_thrust = KpiCard(
+            "EMPUJE", "N", tooltip="Fuerza instantanea medida por la celda de carga."
+        )
+        self.kpi_max = KpiCard(
+            "MAXIMO", "N", tooltip="Mayor empuje registrado durante el ensayo actual."
+        )
+        self.kpi_impulse = KpiCard(
+            "IMPULSO", "Ns", tooltip="Empuje acumulado a lo largo del tiempo; mide la energia total entregada."
+        )
+        self.kpi_class = KpiCard(
+            "CLASE", "", tooltip="Clase NAR calculada a partir del impulso total acumulado."
+        )
+        self.kpi_rssi = KpiCard(
+            "SENAL", "dBm", tooltip="Intensidad de la senal LoRa recibida. Un valor mas cercano a cero es mejor."
+        )
+        self.kpi_lost_pkts = KpiCard(
+            "PERDIDOS", "", tooltip="Paquetes de telemetria ausentes detectados por el numero de secuencia."
+        )
         for kpi in [self.kpi_thrust, self.kpi_max, self.kpi_impulse,
                     self.kpi_class, self.kpi_rssi, self.kpi_lost_pkts]:
             kpi_layout.addWidget(kpi)
@@ -95,6 +110,9 @@ class RocketDashboard(QMainWindow):
         self.btn_mode_lora.clicked.connect(lambda: self._set_mode(ConnectionMode.LORA))
         self.btn_mode_cable.clicked.connect(lambda: self._set_mode(ConnectionMode.CABLE))
 
+        self.btn_mode_wifi = QPushButton("Modo WiFi")
+        self.btn_mode_wifi.clicked.connect(lambda: self._set_mode(ConnectionMode.WIFI))
+
         self.btn_trim = QPushButton("\u2702 RECORTAR")
         self.btn_trim.setStyleSheet(
             "background:#1a1a3a;color:#ffaa00;border-color:#ffaa0044;"
@@ -104,6 +122,7 @@ class RocketDashboard(QMainWindow):
         self.lbl_savepath = QLabel("Autoguardando: NO ACTIVO")
         mode_layout.addWidget(self.btn_mode_lora)
         mode_layout.addWidget(self.btn_mode_cable)
+        mode_layout.addWidget(self.btn_mode_wifi)
         mode_layout.addWidget(self.btn_trim)
         mode_layout.addStretch()
         mode_layout.addWidget(self.lbl_savepath)
@@ -132,6 +151,7 @@ class RocketDashboard(QMainWindow):
         self.control_bar.tare_requested.connect(self._tare)
         self.control_bar.clear_requested.connect(self._clear_data)
         self.control_bar.export_requested.connect(self._export_csv)
+        self.control_bar.analysis_requested.connect(self._open_analysis)
         self.ignition_panel.fire_triggered.connect(self._fire)
 
         # Trim toolbar
@@ -144,34 +164,39 @@ class RocketDashboard(QMainWindow):
     # ── Conexion ──────────────────────────────────────────────────────────────
 
     def _toggle_connection(self) -> None:
-        """Alterna el estado de la conexion serial."""
-        if self.serial_thread and self.serial_thread.isRunning():
-            self.serial_thread.stop()
+        """Alterna el estado de la conexion."""
+        if self.comm_thread and self.comm_thread.isRunning():
+            self.comm_thread.stop()
             self._on_disconnected(intentional=True)
         else:
             self._connect()
 
     def _connect(self) -> None:
-        """Inicia la conexion serial."""
-        port = self.control_bar.get_selected_port()
-        if not port or "No Ports" in port:
-            logger.warning("No hay puertos disponibles para conectar.")
-            return
-        try:
-            self.serial_thread = SerialReader(
-                port=port, baudrate=DEFAULT_BAUDRATE, mode=self.conn_mode
+        """Inicia la conexion de telemetria."""
+        if self.conn_mode == ConnectionMode.WIFI:
+            port_name = "UDP 8888"
+            self.comm_thread = UdpReader(port=8888)
+        else:
+            port_name = self.control_bar.get_selected_port()
+            if not port_name or "No Ports" in port_name:
+                logger.warning("No hay puertos disponibles para conectar.")
+                return
+            self.comm_thread = SerialReader(
+                port=port_name, baudrate=DEFAULT_BAUDRATE, mode=self.conn_mode
             )
-            self.serial_thread.data_received.connect(self._on_data)
-            self.serial_thread.disconnected.connect(
+
+        try:
+            self.comm_thread.data_received.connect(self._on_data)
+            self.comm_thread.disconnected.connect(
                 lambda: self._on_disconnected(intentional=False)
             )
-            self.serial_thread.start()
+            self.comm_thread.start()
             self.header.set_connected(True)
             self.is_recording = False
             self._iniciar_autoguardado()
-            logger.info("Conectado al puerto %s.", port)
+            logger.info("Conectado a %s.", port_name)
         except Exception as e:
-            logger.error("Error al conectar con %s: %s", port, e)
+            logger.error("Error al conectar con %s: %s", port_name, e)
 
     def _on_disconnected(self, intentional: bool = False) -> None:
         """Maneja la desconexion del dispositivo."""
@@ -190,8 +215,8 @@ class RocketDashboard(QMainWindow):
 
     def _send_cmd(self, char: str) -> None:
         """Envia un comando al dispositivo serial."""
-        if self.serial_thread and self.serial_thread.isRunning():
-            self.serial_thread.send_command(char)
+        if self.comm_thread and self.comm_thread.isRunning():
+            self.comm_thread.send_command(char)
             logger.debug("Comando enviado: %s", char)
 
     # ── Grabacion ─────────────────────────────────────────────────────────────
@@ -200,12 +225,14 @@ class RocketDashboard(QMainWindow):
         """Inicia la grabacion de datos."""
         self._clear_data()
         self.is_recording = True
+        self.graph_panel.set_interaction(False)  # Bloquea zoom para forzar auto-scroll
         self._send_cmd("S")
         logger.info("Grabacion iniciada.")
 
     def _stop_recording(self) -> None:
         """Detiene la grabacion de datos."""
         self.is_recording = False
+        self.graph_panel.set_interaction(True)   # Libera la grafica para poder explorar/recortar
         self._send_cmd("T")
         logger.info("Grabacion detenida.")
 
@@ -260,7 +287,7 @@ class RocketDashboard(QMainWindow):
     def _on_trim_range_changed(self, t_start: float, t_end: float) -> None:
         """Se llama cuando el usuario mueve las barras de recorte."""
         self.trim_toolbar.update_range(t_start, t_end)
-        
+
         # Calcular estadisticas exclusivas de este rango
         trim_stats = self.engine.get_trim_stats(t_start, t_end)
         
@@ -299,8 +326,11 @@ class RocketDashboard(QMainWindow):
         """Cambia el modo de conexion."""
         self.conn_mode = mode
         is_lora = mode == ConnectionMode.LORA
-        # Los botones START/STOP ahora son siempre visibles para controlar la grabacion
+
         self.kpi_rssi.setVisible(is_lora)
+        if hasattr(self.control_bar, "set_wifi_mode"):
+            self.control_bar.set_wifi_mode(mode == ConnectionMode.WIFI)
+
         if self.ignition_panel.is_armed:
             self.ignition_panel.disarm()
 
@@ -349,6 +379,15 @@ class RocketDashboard(QMainWindow):
                     logger.info("Datos exportados a %s", path)
                 except Exception as e:
                     logger.error("Error exportando CSV: %s", e)
+
+    def _open_analysis(self) -> None:
+        """Abre la ventana de analisis para explorar archivos CSV guardados."""
+        if self.analysis_window is None:
+            self.analysis_window = CsvAnalysisWindow(self)
+            self.analysis_window.destroyed.connect(lambda: setattr(self, "analysis_window", None))
+        self.analysis_window.show()
+        self.analysis_window.raise_()
+        self.analysis_window.activateWindow()
 
     # ── Feature 2: Recorte de grafica ────────────────────────────────────────
 

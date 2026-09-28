@@ -8,7 +8,14 @@ class KpiCard(QFrame):
     """
     Tarjeta de indicador clave de rendimiento (KPI) que muestra un título, valor y unidad.
     """
-    def __init__(self, label: str, unit: str, color: str = "#00e5ff", parent=None) -> None:
+    def __init__(
+        self,
+        label: str,
+        unit: str,
+        color: str = "#00e5ff",
+        tooltip: str = "",
+        parent=None,
+    ) -> None:
         """
         Inicializa la tarjeta KPI.
         
@@ -20,6 +27,8 @@ class KpiCard(QFrame):
         """
         super().__init__(parent)
         self.color = color
+        if tooltip:
+            self.setToolTip(tooltip)
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet(f"KpiCard{{background:#1a1a2e;border:1px solid {color}44;border-radius:8px;}}")
         
@@ -29,6 +38,7 @@ class KpiCard(QFrame):
         
         self.lbl_title = QLabel(label.upper())
         self.lbl_title.setStyleSheet(f"color:{color};font-size:10px;letter-spacing:2px;")
+        self.lbl_title.setToolTip(tooltip)
         
         self.lbl_value = QLabel("—")
         self.lbl_value.setStyleSheet("color:#ffffff;font-size:24px;font-weight:bold;")
