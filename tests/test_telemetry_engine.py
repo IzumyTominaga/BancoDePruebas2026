@@ -64,3 +64,23 @@ def test_threshold_filtering() -> None:
     # Enviamos un valor que presumiblemente sea menor al THRUST_THRESHOLD habitual
     engine.process_reading(0.01, 1, -40)
     assert engine.thrust_series[-1] == 0.0
+
+
+def test_median_filter_rejects_an_isolated_spike() -> None:
+    engine = TelemetryEngine(thrust_threshold=0.1, filter_window_size=5)
+
+    for seq, value in enumerate([0.0, 0.0, 0.0, 100.0, 0.0], start=1):
+        reading = engine.process_reading(value, seq, -40)
+
+    assert reading.thrust_n == 0.0
+
+
+def test_tare_uses_signed_raw_signal() -> None:
+    engine = TelemetryEngine(thrust_threshold=0.1, filter_window_size=1)
+
+    for seq in range(1, 8):
+        engine.process_reading(-3.0, seq, -40)
+    engine.tare()
+    reading = engine.process_reading(-3.0, 8, -40)
+
+    assert reading.thrust_n == 0.0

@@ -7,12 +7,13 @@ detección de pérdida de paquetes y estadísticas globales.
 
 import logging
 import time
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy as np
 
-from config.constants import GRAVITY, THRUST_THRESHOLD
+from config.constants import FILTER_WINDOW_SIZE, GRAVITY, THRUST_THRESHOLD
 from core.motor_classifier import MotorClassification, clasificar_motor
 
 logger = logging.getLogger(__name__)
@@ -74,17 +75,27 @@ class TelemetryEngine:
     de continuidad en los paquetes recibidos.
     """
 
-    def __init__(self, thrust_threshold: float = THRUST_THRESHOLD) -> None:
+    def __init__(
+        self,
+        thrust_threshold: float = THRUST_THRESHOLD,
+        filter_window_size: int = FILTER_WINDOW_SIZE,
+    ) -> None:
         """Inicializa una nueva instancia del motor de telemetría.
 
         Args:
             thrust_threshold: Umbral mínimo de empuje en Newtons para filtrar
                 ruido basal de la celda de carga. Por defecto THRUST_THRESHOLD.
         """
+        if filter_window_size < 1 or filter_window_size % 2 == 0:
+            raise ValueError("filter_window_size debe ser un entero impar positivo.")
+
         self.thrust_threshold: float = thrust_threshold
+        self.filter_window_size: int = filter_window_size
         self.time_data: List[float] = []
         self.thrust_n: List[float] = []
         self.impulse_data: List[float] = []
+        self.raw_readings: deque[float] = deque(maxlen=filter_window_size)
+        self.raw_history: List[float] = []
         self.tare_offset: float = 0.0
         self.start_time: Optional[float] = None
         self.last_seq: int = -1
@@ -123,9 +134,15 @@ class TelemetryEngine:
             )
         self.last_seq = seq
 
-        # Compensación de tara y filtrado de ruido basal por umbral
-        compensated_newtons = abs(newtons) - self.tare_offset
-        thrust_clean = compensated_newtons if compensated_newtons >= self.thrust_threshold else 0.0
+        # La tara se conserva en señal firmada. abs() aquí convertiría ruido
+        # negativo en empuje positivo y crearía picos artificiales.
+        self.raw_readings.append(newtons)
+        self.raw_history.append(newtons)
+        filtered_newtons = float(np.median(self.raw_readings))
+        compensated_newtons = filtered_newtons - self.tare_offset
+        thrust_clean = max(0.0, compensated_newtons)
+        if thrust_clean < self.thrust_threshold:
+            thrust_clean = 0.0
 
         self.time_data.append(t)
         self.thrust_n.append(thrust_clean)
@@ -159,12 +176,13 @@ class TelemetryEngine:
         )
 
     def tare(self) -> None:
-        """Establece la compensación de tara utilizando el promedio de las últimas 10 lecturas.
+        """Establece la tara con la mediana de las últimas 10 lecturas crudas.
 
-        Requiere más de 5 muestras en la serie de empuje para calcular la media de forma confiable.
+        Requiere más de 5 muestras para obtener una referencia robusta al ruido.
         """
-        if len(self.thrust_n) > 5:
-            self.tare_offset = float(np.mean(self.thrust_n[-10:]))
+        if len(self.raw_history) > 5:
+            self.tare_offset = float(np.median(self.raw_history[-10:]))
+            self.raw_readings.clear()
             logger.info("Tara establecida en: %.4f N", self.tare_offset)
         else:
             logger.warning("Muestras insuficientes para tara (se requieren más de 5 lecturas).")
@@ -174,6 +192,8 @@ class TelemetryEngine:
         self.time_data.clear()
         self.thrust_n.clear()
         self.impulse_data.clear()
+        self.raw_readings.clear()
+        self.raw_history.clear()
         self.tare_offset = 0.0
         self.start_time = None
         self.last_seq = -1

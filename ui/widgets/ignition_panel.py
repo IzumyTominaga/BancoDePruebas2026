@@ -1,8 +1,10 @@
-"""
-Widget del panel de ignición.
-"""
+"""Widget del panel de ignicion."""
+import secrets
+
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLabel
 from PyQt6.QtCore import pyqtSignal
+
+from ui.dialogs.fire_code_dialog import FireCodeDialog
 
 class IgnitionPanel(QWidget):
     """
@@ -33,7 +35,7 @@ class IgnitionPanel(QWidget):
         self.btn_fire = QPushButton("FIRE")
         self.btn_fire.setStyleSheet("background:#1a0000;color:#444444;border:2px solid #44444444;padding:10px 24px;")
         self.btn_fire.setEnabled(False)
-        self.btn_fire.clicked.connect(self.fire_triggered.emit)
+        self.btn_fire.clicked.connect(self._request_fire)
         
         self.lbl_arm_status = QLabel("SISTEMA: SAFE")
         self.lbl_arm_status.setStyleSheet("color:#ff4444;")
@@ -78,3 +80,15 @@ class IgnitionPanel(QWidget):
         self.btn_fire.setStyleSheet("background:#1a0000;color:#444444;border:2px solid #44444444;padding:10px 24px;")
         self.lbl_arm_status.setText("SISTEMA: SAFE")
         self.lbl_arm_status.setStyleSheet("color:#ff4444;")
+
+    def _request_fire(self) -> None:
+        """Exige un codigo temporal antes de emitir la orden de ignicion."""
+        if not self._armed:
+            return
+
+        code = f"{secrets.randbelow(10_000):04d}"
+        dialog = FireCodeDialog(code, self)
+        approved = dialog.exec() == dialog.DialogCode.Accepted
+        self.disarm()
+        if approved:
+            self.fire_triggered.emit()

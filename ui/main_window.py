@@ -119,11 +119,18 @@ class RocketDashboard(QMainWindow):
         )
         self.btn_trim.clicked.connect(self._toggle_trim_mode)
 
+        self.btn_choose_save_folder = QPushButton("CARPETA CSV")
+        self.btn_choose_save_folder.setStyleSheet(
+            "background:#102a30;color:#00e5ff;border-color:#00e5ff44;"
+        )
+        self.btn_choose_save_folder.clicked.connect(self._choose_save_folder)
+
         self.lbl_savepath = QLabel("Autoguardando: NO ACTIVO")
         mode_layout.addWidget(self.btn_mode_lora)
         mode_layout.addWidget(self.btn_mode_cable)
         mode_layout.addWidget(self.btn_mode_wifi)
         mode_layout.addWidget(self.btn_trim)
+        mode_layout.addWidget(self.btn_choose_save_folder)
         mode_layout.addStretch()
         mode_layout.addWidget(self.lbl_savepath)
         layout.addLayout(mode_layout)
@@ -241,11 +248,30 @@ class RocketDashboard(QMainWindow):
     def _iniciar_autoguardado(self) -> None:
         """Configura e inicia el autoguardado de datos CSV."""
         ts = time.strftime("%Y%m%d_%H%M%S")
-        filepath = os.path.join(os.path.expanduser("~"), f"telemetria_{ts}.csv")
+        save_directory = self.settings.get(
+            "autosave_directory",
+            os.path.join(os.path.expanduser("~"), "Documents", "Horus Telemetria"),
+        )
+        filepath = os.path.join(save_directory, f"telemetria_{ts}.csv")
         self.auto_saver = AutoSaver(filepath)
         self.auto_saver.start()
         self.lbl_savepath.setText(f"Autoguardando: {filepath}")
         logger.info("Autoguardado iniciado en %s", filepath)
+
+    def _choose_save_folder(self) -> None:
+        """Permite elegir y recordar la carpeta para los CSV de autoguardado."""
+        current_directory = self.settings.get(
+            "autosave_directory", os.path.join(os.path.expanduser("~"), "Documents")
+        )
+        directory = QFileDialog.getExistingDirectory(
+            self, "Seleccionar carpeta para CSV automaticos", current_directory
+        )
+        if not directory:
+            return
+
+        self.settings.set("autosave_directory", directory)
+        self.lbl_savepath.setText(f"CSV automaticos: {directory}")
+        logger.info("Carpeta de autoguardado actualizada a %s", directory)
 
     # ── Datos ────────────────────────────────────────────────────────────────
 
@@ -312,7 +338,33 @@ class RocketDashboard(QMainWindow):
         self.engine.toggle_unit()
         self.control_bar.update_unit_label(self.engine.is_kg)
         self.graph_panel.set_y_labels(self.engine.is_kg)
+        force_unit = "kg" if self.engine.is_kg else "N"
+        impulse_unit = "kg*s" if self.engine.is_kg else "N*s"
+        self.kpi_thrust.lbl_unit.setText(force_unit)
+        self.kpi_max.lbl_unit.setText(force_unit)
+        self.kpi_impulse.lbl_unit.setText(impulse_unit)
+        self._refresh_display_from_engine()
         logger.info("Unidades cambiadas. Sistema actual en kg: %s", self.engine.is_kg)
+
+    def _refresh_display_from_engine(self) -> None:
+        """Redibuja series y KPIs existentes de forma segura tras cambiar unidad."""
+        if not self.engine.time_series:
+            return
+
+        stats = self.engine.get_stats()
+        factor = self.engine.unit_factor
+        self.kpi_thrust.set_value(self.engine.thrust_series[-1] * factor)
+        self.kpi_max.set_value(stats.max_thrust_n * factor)
+        self.kpi_impulse.set_value(stats.total_impulse_ns * factor)
+        self.kpi_class.set_value(
+            f"{stats.classification.letter} ({stats.classification.percentage:.0f}%)"
+        )
+        self.graph_panel.update_thrust(
+            self.engine.time_series, [value * factor for value in self.engine.thrust_series]
+        )
+        self.graph_panel.update_impulse(
+            self.engine.time_series, [value * factor for value in self.engine.impulse_series]
+        )
 
     def _clear_data(self) -> None:
         """Limpia datos, graficas y KPIs."""
@@ -335,10 +387,9 @@ class RocketDashboard(QMainWindow):
             self.ignition_panel.disarm()
 
     def _fire(self) -> None:
-        if self.ignition_panel.is_armed:
-            self._send_cmd("F")
-            self._send_cmd("S")
-            self.ignition_panel.disarm()
+        """Envia FIRE solo despues de aprobar el codigo temporal del panel."""
+        self._send_cmd("F")
+        self._send_cmd("S")
 
     # ── Feature 1: Exportacion inteligente ──────────────────────────────────
 

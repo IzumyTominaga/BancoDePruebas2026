@@ -9,6 +9,9 @@ GRAVITY: float = 9.80665
 THRUST_THRESHOLD: float = 2.0
 """Umbral de empuje en Newtons para filtrar ruido de la celda de carga e iniciar integración de impulso."""
 
+FILTER_WINDOW_SIZE: int = 5
+"""Cantidad impar de muestras usadas por el filtro de mediana contra picos aislados."""
+
 # Parámetros de comunicación serie
 DEFAULT_BAUDRATE: int = 115200
 """Velocidad en baudios por defecto para la interfaz serie."""
