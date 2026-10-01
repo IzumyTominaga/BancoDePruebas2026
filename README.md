@@ -1,55 +1,76 @@
-# Horus Space Lab — Sistema de Telemetría
+# Horus Space Lab - Banco de Pruebas 2026
 
-Este proyecto contiene el software del orquestador y la interfaz de usuario (Dashboard) para la recolección, visualización y análisis de telemetría de banco de pruebas de motores de cohetes.
+Aplicacion de escritorio para adquirir, visualizar y analizar telemetria de empuje en bancos de prueba de motores de cohete. Horus recibe muestras en tiempo real, muestra las curvas de empuje e impulso, guarda los ensayos en CSV y permite comparar dos corridas.
 
-## Descripción
-El **Horus Telemetry Dashboard** permite la adquisición de datos de empuje (thrust) provenientes de un banco de pruebas. Utiliza PyQt6 para proporcionar una visualización en tiempo real a través de gráficos integrados y tarjetas de indicadores de rendimiento (KPIs), junto con clasificación automática del motor probado según los estándares de la NAR.
+## Funciones principales
 
-## Estructura del Proyecto
+- Telemetria en tiempo real por cable, LoRa o WiFi/UDP.
+- Grafica de empuje e impulso acumulado, con lectura de coordenadas al pasar el cursor sobre un punto.
+- Filtro de mediana de 5 muestras para reducir picos aislados y umbral de empuje para evitar que el ruido se integre como impulso.
+- Cambio entre Newtons y kilogramos-fuerza en la vista en vivo y en el analizador.
+- Indicadores de empuje actual, maximo, impulso, clase NAR, senal y paquetes perdidos. Cada indicador incluye ayuda contextual.
+- Tare de la celda de carga, recorte de intervalos y exportacion del rango seleccionado con impulso recalculado.
+- Autoguardado CSV con carpeta seleccionable y persistente.
+- Ventana `ANALIZAR` para cargar un ensayo A y un ensayo B, superponer sus curvas y calcular cambios porcentuales de empuje maximo e impulso.
+- Ignicion protegida: requiere armar el sistema y confirmar un codigo temporal de cuatro digitos antes de enviar `FIRE`.
+- Pantalla de inicio con identidad de Horus Space Lab.
 
-```
-InterfazBancoqueNoBanquea/
-│
-├── config/              # Configuraciones de estilos, constantes y clases de motor
-├── core/                # Lógica central: Motores de telemetría y clasificadores
-├── communication/       # Gestión de protocolos de comunicación Serial/LoRa
-├── persistence/         # Exportación CSV y autoguardado de telemetría
-├── ui/                  # Componentes de interfaz gráfica (widgets y ventanas)
-├── utils/               # Utilidades misceláneas
-├── tests/               # Pruebas automatizadas (pytest)
-├── main.py              # Punto de entrada de la aplicación
-└── requirements.txt     # Dependencias del sistema
-```
+## Requisitos
 
-## Requisitos y Configuración
+- Python 3.9 o superior.
+- Una celda de carga y su sistema de adquisicion configurados para enviar los paquetes de telemetria.
 
-El proyecto requiere Python 3.9 o superior. Puedes instalar las dependencias con:
+Instala las dependencias:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-## Uso
-
-Para ejecutar la aplicación, corre el script principal:
+## Ejecucion
 
 ```bash
 python main.py
 ```
 
-*Nota para compilación con PyInstaller: Utilizar `main.py` como el punto de entrada principal.*
+Para ejecutar las pruebas automatizadas:
 
-## Modos de Conexión
-La interfaz cuenta con dos métodos de conexión soportados:
-- **CABLE/RS-485:** Comunicación de latencia ultrabaja para bancos adyacentes al equipo.
-- **LoRa:** Transmisión a largo alcance, incorporando información extra sobre la intensidad de la señal y paquetes perdidos, además de funciones para iniciar/detener telemetría de forma inalámbrica de forma explícita.
+```bash
+python -m pytest -q
+```
 
-## Características
-- Visualización de Empuje e Impulso Total en tiempo real (PyQtGraph)
-- Clasificación Automática según la Asociación Nacional de Cohetería (NAR)
-- Autoguardado e historial en archivos CSV
-- Conversión instantánea entre Newtons y Kilogramos-Fuerza
-- Sistema seguro de ignición remota ("Armado" y "Fuego")
-- Pruebas integradas de componentes
+## Flujo de operacion
 
-# BancoDePruebas2026
+1. Inicia Horus y selecciona el modo de conexion: `Cable`, `LoRa` o `WiFi`.
+2. Conecta la fuente de telemetria. En WiFi, Horus escucha por UDP en el puerto `8888`.
+3. Usa `TARE` sin carga para establecer el cero de la medicion.
+4. Inicia la adquisicion; el autoguardado creara un CSV en la carpeta elegida con `CARPETA CSV`.
+5. Exporta el ensayo completo o activa el recorte para guardar solo una parte de la corrida.
+6. Abre `ANALIZAR`, carga los CSV en A y B y revisa las curvas y las variaciones de rendimiento.
+
+## Formato de telemetria
+
+Los paquetes binarios de telemetria contienen el empuje como `float` de 4 bytes y un numero de secuencia `uint32` de 4 bytes. El numero de secuencia permite detectar paquetes perdidos. En modo LoRa se agrega el RSSI.
+
+Los CSV exportados incluyen tiempo, empuje en Newtons y kilogramos-fuerza. Los CSV de recorte tambien incluyen el impulso acumulado recalculado desde el inicio del intervalo elegido.
+
+## Estructura
+
+```text
+BancoDePruebas2026/
+|- communication/  Lectores serie y UDP, protocolos de conexion
+|- config/         Constantes, estilos, configuracion y clases NAR
+|- core/           Procesamiento, filtrado, integracion y clasificacion
+|- persistence/    Autoguardado, carga y exportacion CSV
+|- ui/             Ventana principal, dialogos y widgets PyQt6
+|- tests/          Pruebas automatizadas
+|- main.py         Punto de entrada
+`- requirements.txt
+```
+
+## Seguridad de ignicion
+
+La confirmacion por codigo reduce activaciones accidentales, pero no reemplaza procedimientos fisicos de seguridad. Antes de armar el sistema, verifica el area de prueba, las conexiones, el relevador y que no haya personas dentro de la zona de riesgo.
+
+## Empaquetado
+
+Para PyInstaller, usa `main.py` como punto de entrada e incluye los recursos graficos del proyecto, como `HSL_transparent.png`.
